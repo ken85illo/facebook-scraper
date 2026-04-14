@@ -148,6 +148,19 @@ class FacebookScraper:
     def extract_comment_articles(
         self, dialog_elem: WebElement, comments: set[str]
     ):
+        if not self.driver:
+            return
+
+        # Wait for the comments to load
+        _ = WebDriverWait(self.driver, 300).until(
+            EC.presence_of_element_located(
+                (
+                    By.CSS_SELECTOR,
+                    "div[role='article'][aria-label^='Comment by']",
+                )
+            )
+        )
+
         # Checheck natin kung yung naload na comment is mas marami kapag nagscroll tayo pababa
         previous_len = -1
         current_index = 0
@@ -174,7 +187,7 @@ class FacebookScraper:
                 # If lumagpas na sa max return na
                 if len(comments) >= self.overall_limit or (
                     self.limit_per_post
-                    and current_index + 1 >= self.limit_per_post
+                    and current_index + 1 > self.limit_per_post
                 ):
                     return
 
@@ -183,6 +196,13 @@ class FacebookScraper:
     def extract_comments_with_bs(self):
         if not self.driver:
             return
+
+        # Wait until the posts are loaded
+        _ = WebDriverWait(self.driver, 300).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "div[aria-label='Leave a comment']")
+            )
+        )
 
         # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
         previous_len = -1
