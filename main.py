@@ -1,4 +1,7 @@
+import os
 import random
+import subprocess
+import sys
 import time
 
 import pandas as pd
@@ -197,7 +200,7 @@ class FacebookScraper:
         comments: set[str] = set()
 
         while True:
-            time.sleep(3)
+            time.sleep(1)
             # Query all the comment buttons
             all_comment_btns = self.driver.find_elements(
                 By.CSS_SELECTOR, "div[aria-label='Leave a comment']"
@@ -254,6 +257,14 @@ class FacebookScraper:
 
 
 if __name__ == "__main__":
+    try:
+        _, username, password = sys.argv
+    except Exception:
+        print("Usage: python main.py <username> <password>")
+        sys.exit()
+
+    _ = subprocess.run("cls" if os.name == "nt" else "clear")
+
     search_terms = ["rice news"]  # dagdagan niyo nalang dito terms
     urls = [
         f"https://www.facebook.com/search/top?q={term}" for term in search_terms
@@ -261,7 +272,7 @@ if __name__ == "__main__":
 
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
     # naka none yung limit per post para magamit dapat iset yung number
-    scraper = FacebookScraper("username", "password")
+    scraper = FacebookScraper(username, password)
 
     try:
         scraper.initialize_driver()
@@ -282,6 +293,7 @@ if __name__ == "__main__":
                 {"comments": [comment for comment in all_comments]}
             )
             df.to_csv("facebook_comments.csv")
+            print("Scrape results are written in facebook_comments.csv")
 
     finally:
         scraper.close()
