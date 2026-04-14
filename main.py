@@ -257,72 +257,76 @@ class FacebookScraper:
         # Comment content and 7 reactions (8 total)
         comments: set[tuple[str, ...]] = set()
 
-        # Wait until the posts are loaded
-        _ = WebDriverWait(self.driver, 300).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "div[aria-label='Leave a comment']")
-            )
-        )
-
-        # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
-        previous_len = -1
-        current_index = 0
-
-        while True:
-            time.sleep(1)
-            # Query all the comment buttons
-            all_comment_btns = self.driver.find_elements(
-                By.CSS_SELECTOR, "div[aria-label='Leave a comment']"
+        try:
+            # Wait until the posts are loaded
+            _ = WebDriverWait(self.driver, 300).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "div[aria-label='Leave a comment']")
+                )
             )
 
-            current_len = len(all_comment_btns)
-            if current_len <= previous_len:
-                break
+            # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
+            previous_len = -1
+            current_index = 0
 
-            for comment_btn in all_comment_btns[current_index:]:
-                if len(comments) >= self.overall_limit:
-                    return comments
+            while True:
+                time.sleep(1)
+                # Query all the comment buttons
+                all_comment_btns = self.driver.find_elements(
+                    By.CSS_SELECTOR, "div[aria-label='Leave a comment']"
+                )
 
-                # Scroll down para magload yung mga proceeding posts
-                self.scroll_into_view(comment_btn)
-                self.click_elem(comment_btn)
-                time.sleep(3)
+                current_len = len(all_comment_btns)
+                if current_len <= previous_len:
+                    break
 
-                # Wait until the post modal pops up
-                dialog_elem = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located(
-                        (
-                            By.CSS_SELECTOR,
-                            'div[role="dialog"][aria-labelledby^="_r_"][aria-labelledby$="_"]',
+                for comment_btn in all_comment_btns[current_index:]:
+                    if len(comments) >= self.overall_limit:
+                        return comments
+
+                    # Scroll down para magload yung mga proceeding posts
+                    self.scroll_into_view(comment_btn)
+                    self.click_elem(comment_btn)
+                    time.sleep(3)
+
+                    # Wait until the post modal pops up
+                    dialog_elem = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located(
+                            (
+                                By.CSS_SELECTOR,
+                                'div[role="dialog"][aria-labelledby^="_r_"][aria-labelledby$="_"]',
+                            )
                         )
                     )
-                )
 
-                print("Opened one post!")
-                commment_prev_size = len(comments)
+                    print("Opened one post!")
+                    commment_prev_size = len(comments)
 
-                self.extract_comment_articles(dialog_elem, comments)
+                    self.extract_comment_articles(dialog_elem, comments)
 
-                added_comments = len(comments) - commment_prev_size
+                    added_comments = len(comments) - commment_prev_size
 
-                if added_comments > 0:
-                    print(
-                        f"Extracted a total of {len(comments) - commment_prev_size} comments from one post..."
+                    if added_comments > 0:
+                        print(
+                            f"Extracted a total of {len(comments) - commment_prev_size} comments from one post..."
+                        )
+                    else:
+                        print("The opened post has no commments!")
+
+                    # After maread yung commments close the post modal
+                    close_btn = dialog_elem.find_element(
+                        By.CSS_SELECTOR, "div[aria-label='Close']"
                     )
-                else:
-                    print("The opened post has no commments!")
+                    self.click_elem(close_btn)
 
-                # After maread yung commments close the post modal
-                close_btn = dialog_elem.find_element(
-                    By.CSS_SELECTOR, "div[aria-label='Close']"
-                )
-                self.click_elem(close_btn)
+                    current_index += 1
 
-                current_index += 1
+                previous_len = current_len
 
-            previous_len = current_len
+            return comments
 
-        return comments
+        except Exception:
+            return comments
 
 
 if __name__ == "__main__":
