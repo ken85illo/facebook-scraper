@@ -134,22 +134,81 @@ class FacebookScraper:
                 + " "
             )
 
-            # TODO: Implement the extraction of number of reactions per commment
-            # TODO: Implement the extraction of date and time per comment
-
-            # Scroll sa view ng comment para magload yung mga proceeding
-
+        # Scroll sa view ng comment para magload yung mga proceeding
         self.scroll_into_view(comment_bodies[0])
         return comment_content
 
+    # TODO: Implement the extraction of number of reactions per commment (done)
+    def _extract_single_comment_reactions(self, article: WebElement):
+        if not self.driver:
+            return
+
+        # Reactions: like, love, care, laugh, shock, cry, and angry (7 total)
+        reactions = {
+            "Like": "0",
+            "Love": "0",
+            "Care": "0",
+            "Haha": "0",
+            "Wow": "0",
+            "Sad": "0",
+            "Angry": "0",
+        }
+
+        try:
+            # Check if the element has see reaction button (if it has not return the empty reactions)
+            comment_reaction_btn = article.find_element(
+                By.CSS_SELECTOR, "div[aria-label$='see who reacted to this']"
+            )
+        except Exception:
+            return tuple(reactions.values())
+
+        self.click_elem(comment_reaction_btn)
+
+        # Check if the reaction modal is loaded
+        dialog_elem = WebDriverWait(self.driver, 300).until(
+            EC.presence_of_element_located(
+                (
+                    By.CSS_SELECTOR,
+                    'div[role="dialog"][aria-labelledby^="_r_"][aria-labelledby$="_"]:has(div[aria-label^="Show"]',
+                )
+            )
+        )
+
+        soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+        for label in list(reactions):
+            reaction_elem = soup.select_one(
+                f"div[aria-label^='Show'][aria-label$='who reacted with {label}']"
+            )
+
+            if not reaction_elem:
+                continue
+
+            reaction_value = reaction_elem.select_one("span[dir='auto']")
+
+            if not reaction_value:
+                continue
+
+            reactions[label] = reaction_value.get_text(strip=True)
+
+        close_btn = dialog_elem.find_element(
+            By.CSS_SELECTOR, "div[aria-label='Close']"
+        )
+        self.click_elem(close_btn)
+
+        return tuple(reactions.values())
+
+    # TODO: Implement the extraction of date and time per comment
     def extract_comment_articles(
-        self, dialog_elem: WebElement, comments: set[str]
+        self,
+        dialog_elem: WebElement,
+        comments: set[tuple[str, ...]],
     ):
         if not self.driver:
             return
 
         # Wait for the comments to load
-        _ = WebDriverWait(self.driver, 300).until(
+        _ = WebDriverWait(dialog_elem, 300).until(
             EC.presence_of_element_located(
                 (
                     By.CSS_SELECTOR,
@@ -175,9 +234,10 @@ class FacebookScraper:
             # Skip yung mga previously na read na comments (current_index)
             for article in comment_articles[current_index:]:
                 inner_comment = self._extract_single_comment_text(article)
+                reactions = self._extract_single_comment_reactions(article)
 
-                if inner_comment:
-                    comments.add(inner_comment)
+                if inner_comment and reactions:
+                    comments.add(tuple([inner_comment, *reactions]))
 
                 current_index += 1
 
@@ -194,6 +254,9 @@ class FacebookScraper:
         if not self.driver:
             return
 
+        # Comment content and 7 reactions (8 total)
+        comments: set[tuple[str, ...]] = set()
+
         # Wait until the posts are loaded
         _ = WebDriverWait(self.driver, 300).until(
             EC.presence_of_element_located(
@@ -204,7 +267,6 @@ class FacebookScraper:
         # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
         previous_len = -1
         current_index = 0
-        comments: set[str] = set()
 
         while True:
             time.sleep(1)
@@ -285,7 +347,7 @@ if __name__ == "__main__":
         scraper.initialize_driver()
         scraper.login()
 
-        all_comments: set[str] = set()
+        all_comments: set[tuple[str, ...]] = set()
 
         # Extract comments for posts for every search terms
         for url in urls:
@@ -297,7 +359,17 @@ if __name__ == "__main__":
 
         if all_comments:
             df = pd.DataFrame(
-                {"comments": [comment for comment in all_comments]}
+                list(all_comments),
+                columns=[
+                    "Comments",
+                    "Like",
+                    "Love",
+                    "Care",
+                    "Laugh",
+                    "Shock",
+                    "Cry",
+                    "Angry",
+                ],
             )
             df.to_csv("facebook_comments.csv")
             print("Scrape results are written in facebook_comments.csv")
