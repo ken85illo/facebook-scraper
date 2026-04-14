@@ -113,7 +113,6 @@ class FacebookScraper:
 
     def _extract_single_comment_text(self, article: WebElement):
         # Query the comment inside the article div
-
         comment_bodies = article.find_elements(
             By.CSS_SELECTOR, "div[dir='auto']"
         )
@@ -121,19 +120,27 @@ class FacebookScraper:
         if not comment_bodies:
             return
 
-        comment_body = comment_bodies[-1]
-        comment_tag = comment_body.get_attribute("outerHTML")
+        comment_content = ""
 
-        if not comment_tag:
-            return ""
+        for comment_body in comment_bodies:
+            comment_tag = comment_body.get_attribute("outerHTML")
 
-        inner_comment = BeautifulSoup(comment_tag, "html.parser").get_text(
-            separator=" ", strip=True
-        )
+            if not comment_tag:
+                break
 
-        # Scroll sa view ng comment para magload yung mga proceeding
-        self.scroll_into_view(comment_body)
-        return inner_comment
+            # TODO: Fix the inner comment not getting the full text when it has new line (done)
+            comment_content += (
+                BeautifulSoup(comment_tag, "html.parser").get_text(strip=True)
+                + " "
+            )
+
+            # TODO: Implement the extraction of number of reactions per commment
+            # TODO: Implement the extraction of date and time per comment
+
+            # Scroll sa view ng comment para magload yung mga proceeding
+
+        self.scroll_into_view(comment_bodies[0])
+        return comment_content
 
     def extract_comment_articles(
         self, dialog_elem: WebElement, comments: set[str]
