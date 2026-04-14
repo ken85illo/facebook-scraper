@@ -5,7 +5,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.edge.options import Options
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
@@ -29,11 +29,24 @@ class FacebookScraper:
 
     def initialize_driver(self):
         options = Options()
-        options.set_preference("dom.webdriver.enabled", False)
-        options.set_preference("useAutomationExtension", False)
 
-        self.driver = webdriver.Firefox(options=options)
-        print("Opening firefox browser...")
+        # 1. Remove the "automated testing" notification
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+
+        # 2. Disable blink features that detect automation
+        options.add_argument('--disable-blink-features=AutomationControlled')
+
+        # 3. Set a real user-agent
+        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0')
+
+        # 4. Additional stealth arguments
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--start-maximized')
+
+        self.driver = webdriver.Edge(options=options)
+        print("Opening edge browser...")
         time.sleep(3)
 
     def close(self):
