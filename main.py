@@ -3,6 +3,7 @@ import random
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -21,7 +22,7 @@ class FacebookScraper:
         self,
         email: str,
         password: str,
-        limit_per_post: int | None = 100,
+        limit_per_post: int | None = None,
         overall_limit: int = 100,
     ):
         self.email: str = email
@@ -74,6 +75,12 @@ class FacebookScraper:
             .perform()
         )
         self.driver.execute_script("arguments[0].click();", element)
+
+    def hover_elem(self, element: WebElement):
+        if not self.driver:
+            return
+
+        (webdriver.ActionChains(self.driver).move_to_element(element).perform())
 
     def login(self):
         if not self.driver:
@@ -134,9 +141,47 @@ class FacebookScraper:
                 + " "
             )
 
-        # Scroll sa view ng comment para magload yung mga proceeding
-        self.scroll_into_view(comment_bodies[0])
-        return comment_content
+        return comment_content.strip()
+
+    # TODO: Implement the extraction of date and time per comment (done)
+    def _extract_single_comment_date(self, article: WebElement):
+        if not self.driver:
+            return ""
+
+        # Get the date link <a> tag
+        date_link = article.find_elements(
+            By.CSS_SELECTOR, "a[role='link']:not([aria-hidden])"
+        )
+
+        if not date_link:
+            return
+
+        self.scroll_into_view(date_link[-1])
+        self.hover_elem(date_link[-1])
+
+        date_tooltip = WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "div[role='tooltip']")
+            )
+        )
+
+        date_source = date_tooltip.get_attribute("outerHTML")
+
+        if not date_source:
+            return
+
+        date_content = BeautifulSoup(date_source, "html.parser").find("span")
+
+        if not date_content:
+            return
+
+        # Extract content and put it into a date time object
+        format_str = "%A, %B %d, %Y at %I:%M %p"
+        dt_object = datetime.strptime(
+            date_content.get_text(strip=True), format_str
+        )
+
+        return dt_object
 
     # TODO: Implement the extraction of number of reactions per commment (done)
     def _extract_single_comment_reactions(self, article: WebElement):
@@ -198,11 +243,10 @@ class FacebookScraper:
 
         return tuple(reactions.values())
 
-    # TODO: Implement the extraction of date and time per comment
     def extract_comment_articles(
         self,
         dialog_elem: WebElement,
-        comments: set[tuple[str, ...]],
+        comments: set[tuple[datetime | str | None, ...]],
     ):
         if not self.driver:
             return
@@ -233,11 +277,15 @@ class FacebookScraper:
 
             # Skip yung mga previously na read na comments (current_index)
             for article in comment_articles[current_index:]:
+                # Scroll sa view ng comment para magload yung mga proceeding
+                self.scroll_into_view(article)
+
+                date = self._extract_single_comment_date(article)
                 inner_comment = self._extract_single_comment_text(article)
                 reactions = self._extract_single_comment_reactions(article)
 
                 if inner_comment and reactions:
-                    comments.add(tuple([inner_comment, *reactions]))
+                    comments.add(tuple([date, inner_comment, *reactions]))
 
                 current_index += 1
 
@@ -255,7 +303,7 @@ class FacebookScraper:
             return
 
         # Comment content and 7 reactions (8 total)
-        comments: set[tuple[str, ...]] = set()
+        comments: set[tuple[datetime | str | None, ...]] = set()
 
         try:
             # Wait until the posts are loaded
@@ -325,7 +373,8 @@ class FacebookScraper:
 
             return comments
 
-        except Exception:
+        except Exception as e:
+            print(f"Error Extracting Comments: {e}")
             return comments
 
 
@@ -351,7 +400,7 @@ if __name__ == "__main__":
         scraper.initialize_driver()
         scraper.login()
 
-        all_comments: set[tuple[str, ...]] = set()
+        all_comments: set[tuple[datetime | str | None, ...]] = set()
 
         # Extract comments for posts for every search terms
         for url in urls:
@@ -365,6 +414,7 @@ if __name__ == "__main__":
             df = pd.DataFrame(
                 list(all_comments),
                 columns=[
+                    "Date",
                     "Comments",
                     "Like",
                     "Love",
@@ -375,7 +425,9 @@ if __name__ == "__main__":
                     "Angry",
                 ],
             )
-            df.to_csv("facebook_comments.csv")
+            df = df.sort_values(by="Date").reset_index(drop=True)
+            df.to_csv("facebook_comments.csv", index=False)
+
             print("Scrape results are written in facebook_comments.csv")
 
     finally:
