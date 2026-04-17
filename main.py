@@ -67,6 +67,7 @@ class FacebookScraper:
     def click_elem(self, element: WebElement):
         if not self.driver:
             return
+
         # Move mouse to element before clicking to simulate human behavior
         (
             webdriver.ActionChains(self.driver)
@@ -204,20 +205,29 @@ class FacebookScraper:
             comment_reaction_btn = article.find_element(
                 By.CSS_SELECTOR, "div[aria-label$='see who reacted to this']"
             )
+            self.click_elem(comment_reaction_btn)
         except Exception:
             return tuple(reactions.values())
-
-        self.click_elem(comment_reaction_btn)
 
         # Check if the reaction modal is loaded
         dialog_elem = WebDriverWait(self.driver, 300).until(
             EC.presence_of_element_located(
                 (
                     By.CSS_SELECTOR,
-                    'div[role="dialog"][aria-labelledby^="_r_"][aria-labelledby$="_"]:has(div[aria-label^="Show"]',
+                    'div[role="dialog"][aria-labelledby^="_r_"][aria-labelledby$="_"]:has(div[aria-label^="Show"][aria-selected])',
                 )
             )
         )
+
+        try:
+            # Click the "More" tab of the dialog if its present
+            more_btn = dialog_elem.find_element(
+                By.CSS_SELECTOR, "div[aria-haspopup]"
+            )
+
+            self.click_elem(more_btn)
+        except Exception:
+            pass
 
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
 
@@ -373,8 +383,7 @@ class FacebookScraper:
 
             return comments
 
-        except Exception as e:
-            print(f"Error Extracting Comments: {e}")
+        except Exception:
             return comments
 
 
@@ -385,7 +394,7 @@ if __name__ == "__main__":
         print("Usage: python main.py <username> <password>")
         sys.exit()
 
-    _ = subprocess.run("cls" if os.name == "nt" else "clear")
+    _ = subprocess.run("cls" if os.name == "nt" else "clear", shell=True)
 
     search_terms = ["rice news"]  # dagdagan niyo nalang dito terms
     urls = [
