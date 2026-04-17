@@ -30,6 +30,7 @@ class FacebookScraper:
         self.driver: WebDriver | None = None
         self.limit_per_post: int | None = limit_per_post
         self.overall_limit: int = overall_limit
+        self._post_id = 0
 
     def initialize_driver(self):
         options = Options()
@@ -256,24 +257,16 @@ class FacebookScraper:
     def extract_comment_articles(
         self,
         dialog_elem: WebElement,
-        comments: set[tuple[datetime | str | None, ...]],
+        comments: set[tuple[int | datetime | str | None, ...]],
     ):
         if not self.driver:
             return
 
-        # Wait for the comments to load
-        _ = WebDriverWait(dialog_elem, 300).until(
-            EC.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "div[role='article'][aria-label^='Comment by']",
-                )
-            )
-        )
-
         # Checheck natin kung yung naload na comment is mas marami kapag nagscroll tayo pababa
         previous_len = -1
         current_index = 0
+
+        time.sleep(5)
 
         while True:
             # Query all the commment articles (article role and yung label niya nagsisimula sa Comment By...)
@@ -295,7 +288,9 @@ class FacebookScraper:
                 reactions = self._extract_single_comment_reactions(article)
 
                 if inner_comment and reactions:
-                    comments.add(tuple([date, inner_comment, *reactions]))
+                    comments.add(
+                        (self._post_id, date, inner_comment, *reactions)
+                    )
 
                 current_index += 1
 
@@ -309,11 +304,14 @@ class FacebookScraper:
             previous_len = current_len
 
     def extract_comments_with_bs(self):
-        if not self.driver:
-            return
+        # Posts id and link
+        posts: set[tuple[int, str]] = set()
 
-        # Comment content and 7 reactions (8 total)
-        comments: set[tuple[datetime | str | None, ...]] = set()
+        # Post id, comment content and 7 reactions (9 total)
+        comments: set[tuple[int | datetime | str | None, ...]] = set()
+
+        if not self.driver:
+            return posts, comments
 
         try:
             # Wait until the posts are loaded
@@ -340,7 +338,10 @@ class FacebookScraper:
 
                 for comment_btn in all_comment_btns[current_index:]:
                     if len(comments) >= self.overall_limit:
-                        return comments
+                        return posts, comments
+
+                    if not comment_btn.text.strip():
+                        continue
 
                     # Scroll down para magload yung mga proceeding posts
                     self.scroll_into_view(comment_btn)
@@ -357,6 +358,8 @@ class FacebookScraper:
                         )
                     )
 
+                    posts.add((self._post_id, self.driver.current_url))
+
                     print("Opened one post!")
                     commment_prev_size = len(comments)
 
@@ -368,6 +371,7 @@ class FacebookScraper:
                         print(
                             f"Extracted a total of {len(comments) - commment_prev_size} comments from one post..."
                         )
+                        self._post_id += 1
                     else:
                         print("The opened post has no commments!")
 
@@ -381,10 +385,10 @@ class FacebookScraper:
 
                 previous_len = current_len
 
-            return comments
+            return posts, comments
 
         except Exception:
-            return comments
+            return posts, comments
 
 
 if __name__ == "__main__":
@@ -403,41 +407,51 @@ if __name__ == "__main__":
 
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
     # naka none yung limit per post para magamit dapat iset yung number
-    scraper = FacebookScraper(username, password)
+    scraper = FacebookScraper(
+        username, password, overall_limit=20, limit_per_post=5
+    )
 
     try:
         scraper.initialize_driver()
         scraper.login()
 
-        all_comments: set[tuple[datetime | str | None, ...]] = set()
+        all_comments: set[tuple[int | datetime | str | None, ...]] = set()
+        all_posts: set[tuple[int, str]] = set()
 
         # Extract comments for posts for every search terms
         for url in urls:
             scraper.navigate_to_link(url)
-            comments = scraper.extract_comments_with_bs()
+            posts, comments = scraper.extract_comments_with_bs()
 
             if comments:
                 all_comments.update(comments)
 
-        if all_comments:
-            df = pd.DataFrame(
-                list(all_comments),
-                columns=[
-                    "Date",
-                    "Comments",
-                    "Like",
-                    "Love",
-                    "Care",
-                    "Laugh",
-                    "Shock",
-                    "Cry",
-                    "Angry",
-                ],
-            )
-            df = df.sort_values(by="Date").reset_index(drop=True)
-            df.to_csv("facebook_comments.csv", index=False)
+            if posts:
+                all_posts.update(posts)
 
-            print("Scrape results are written in facebook_comments.csv")
+        df_posts = pd.DataFrame(
+            list(all_posts), columns=["Id", "Post Link"]
+        ).sort_values(by="Id")
+        df_posts.to_csv("facebook_posts.csv", index=False)
+
+        df_comments = pd.DataFrame(
+            list(all_comments),
+            columns=[
+                "Id",
+                "Date",
+                "Comments",
+                "Like",
+                "Love",
+                "Care",
+                "Laugh",
+                "Shock",
+                "Cry",
+                "Angry",
+            ],
+        ).sort_values(by="Date")
+        df_comments.to_csv("facebook_comments.csv", index=False)
+
+        print("Scrape results are written in facebook_comments.csv")
 
     finally:
         scraper.close()
