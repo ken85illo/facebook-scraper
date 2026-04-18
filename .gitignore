@@ -1,2 +1,3 @@
-facebook_comments.csv
+*.csv
 .venv/
+
