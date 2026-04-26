@@ -16,7 +16,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
 
-# pyright: reportUnknownMemberType=false
 class FacebookScraper:
     def __init__(
         self,
@@ -30,7 +29,8 @@ class FacebookScraper:
         self.driver: WebDriver | None = None
         self.limit_per_post: int | None = limit_per_post
         self.overall_limit: int = overall_limit
-        self._post_id = 0
+        self._posts_links: set[str] = set()
+        self._post_id: int = 0
 
     def initialize_driver(self):
         options = Options()
@@ -57,6 +57,28 @@ class FacebookScraper:
             if random.random() < 0.1:
                 time.sleep(random.uniform(0.3, 0.7))
 
+    def read_comments_csv(self, filepath: str):
+        try:
+            df = pd.read_csv(filepath)
+            comments: set[tuple[int | datetime | str | None, ...]] = set(
+                df.itertuples(index=False, name=None)
+            )
+            return comments
+        except Exception:
+            return set[tuple[int | datetime | str | None, ...]]()
+
+    def read_posts_csv(self, filepath: str):
+        try:
+            df = pd.read_csv(filepath)
+            self._posts_links = set(df["Post Link"])
+
+            posts: set[tuple[int, str]] = set(
+                df.itertuples(index=False, name=None)
+            )
+            return posts
+        except Exception:
+            return set[tuple[int, str]]()
+
     def scroll_into_view(self, element: WebElement):
         if self.driver:
             self.driver.execute_script(
@@ -68,6 +90,11 @@ class FacebookScraper:
     def click_elem(self, element: WebElement):
         if not self.driver:
             return
+
+        # Wait for the element to be clickable
+        element = WebDriverWait(self.driver, 10).until(
+            EC.element_to_be_clickable(element)
+        )
 
         # Move mouse to element before clicking to simulate human behavior
         (
@@ -346,7 +373,6 @@ class FacebookScraper:
                     # Scroll down para magload yung mga proceeding posts
                     self.scroll_into_view(comment_btn)
                     self.click_elem(comment_btn)
-                    time.sleep(3)
 
                     # Wait until the post modal pops up
                     dialog_elem = WebDriverWait(self.driver, 10).until(
@@ -358,7 +384,15 @@ class FacebookScraper:
                         )
                     )
 
-                    posts.add((self._post_id, self.driver.current_url))
+                    close_btn = dialog_elem.find_element(
+                        By.CSS_SELECTOR, "div[aria-label='Close']"
+                    )
+
+                    # Skip posts links that are already read
+                    if self.driver.current_url in self._posts_links:
+                        print("Skipping the already read post")
+                        self.click_elem(close_btn)
+                        continue
 
                     print("Opened one post!")
                     commment_prev_size = len(comments)
@@ -375,10 +409,9 @@ class FacebookScraper:
                     else:
                         print("The opened post has no commments!")
 
+                    posts.add((self._post_id, self.driver.current_url))
+
                     # After maread yung commments close the post modal
-                    close_btn = dialog_elem.find_element(
-                        By.CSS_SELECTOR, "div[aria-label='Close']"
-                    )
                     self.click_elem(close_btn)
 
                     current_index += 1
@@ -387,7 +420,8 @@ class FacebookScraper:
 
             return posts, comments
 
-        except Exception:
+        except Exception as e:
+            print(f"Error: {e}")
             return posts, comments
 
 
@@ -400,7 +434,10 @@ if __name__ == "__main__":
 
     _ = subprocess.run("cls" if os.name == "nt" else "clear", shell=True)
 
-    search_terms = ["rice news"]  # dagdagan niyo nalang dito terms
+    comments_csv = "facebook_comments.csv"
+    posts_csv = "facebook_posts.csv"
+
+    search_terms = ["rice price news"]  # dagdagan niyo nalang dito terms
     urls = [
         f"https://www.facebook.com/search/top?q={term}" for term in search_terms
     ]
@@ -408,15 +445,18 @@ if __name__ == "__main__":
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
     # naka none yung limit per post para magamit dapat iset yung number
     scraper = FacebookScraper(
-        username, password, overall_limit=20, limit_per_post=5
+        username, password, overall_limit=1000, limit_per_post=100
     )
 
     try:
+        # Read first if there is already a csv file
+        all_comments: set[tuple[int | datetime | str | None, ...]] = (
+            scraper.read_comments_csv(comments_csv)
+        )
+        all_posts: set[tuple[int, str]] = scraper.read_posts_csv(posts_csv)
+
         scraper.initialize_driver()
         scraper.login()
-
-        all_comments: set[tuple[int | datetime | str | None, ...]] = set()
-        all_posts: set[tuple[int, str]] = set()
 
         # Extract comments for posts for every search terms
         for url in urls:
@@ -432,7 +472,7 @@ if __name__ == "__main__":
         df_posts = pd.DataFrame(
             list(all_posts), columns=["Id", "Post Link"]
         ).sort_values(by="Id")
-        df_posts.to_csv("facebook_posts.csv", index=False)
+        df_posts.to_csv(posts_csv, index=False)
 
         df_comments = pd.DataFrame(
             list(all_comments),
@@ -449,7 +489,7 @@ if __name__ == "__main__":
                 "Angry",
             ],
         ).sort_values(by="Date")
-        df_comments.to_csv("facebook_comments.csv", index=False)
+        df_comments.to_csv(comments_csv, index=False)
 
         print("Scrape results are written in facebook_comments.csv")
 
