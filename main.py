@@ -347,6 +347,7 @@ class FacebookScraper:
                     (By.CSS_SELECTOR, "div[aria-label='Leave a comment']")
                 )
             )
+            time.sleep(3)
 
             # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
             previous_len = -1
@@ -392,6 +393,7 @@ class FacebookScraper:
                     if self.driver.current_url in self._posts_links:
                         print("Skipping the already read post")
                         self.click_elem(close_btn)
+                        current_index += 1
                         continue
 
                     print("Opened one post!")
