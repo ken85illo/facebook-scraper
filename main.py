@@ -1,3 +1,4 @@
+import getpass
 import os
 import random
 import subprocess
@@ -18,6 +19,32 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 
 # pyright: reportUnknownMemberType = false
+class Col:
+    BLUE: str = "\033[94m"
+    CYAN: str = "\033[96m"
+    GREEN: str = "\033[92m"
+    YELLOW: str = "\033[93m"
+    RED: str = "\033[91m"
+    BOLD: str = "\033[1m"
+    END: str = "\033[0m"
+
+
+def log_info(msg: str):
+    print(f"{Col.BLUE}[INFO]{Col.END} {msg}")
+
+
+def log_success(msg: str):
+    print(f"{Col.GREEN}[SUCCESS]{Col.END} {msg}")
+
+
+def log_warn(msg: str):
+    print(f"{Col.YELLOW}[WARN]{Col.END} {msg}")
+
+
+def log_error(msg: str):
+    print(f"{Col.RED}[ERROR]{Col.END} {msg}")
+
+
 class FacebookScraper:
     def __init__(
         self,
@@ -40,7 +67,7 @@ class FacebookScraper:
         options.set_preference("useAutomationExtension", False)
 
         self.driver = webdriver.Firefox(options=options)
-        print("Opening firefox browser...")
+        log_info(f"Opening {Col.BOLD}Firefox{Col.END} browser...")
         time.sleep(3)
 
     def close(self):
@@ -98,7 +125,7 @@ class FacebookScraper:
             return
 
         self.driver.get("https://www.facebook.com/login")
-        print(f"Sign up with email {self.email}...")
+        log_info(f"Logging in as: {Col.CYAN}{self.email}{Col.END}...")
 
         time.sleep(3)
 
@@ -126,7 +153,7 @@ class FacebookScraper:
             )
         )
 
-        print("Sign up done!")
+        log_success("Login successful!")
         time.sleep(5)
 
     def _extract_single_comment_text(self, article: WebElement):
@@ -346,7 +373,7 @@ class FacebookScraper:
         else:
             df_new.to_csv(path, index=False)
 
-        print(f"Appended new data to {path}...")
+        log_success(f"Appended new data to {Col.CYAN}{path}{Col.END}...")
 
     def extract_comments_with_bs(self, posts_path: str, comments_path: str):
         # Posts id and link
@@ -432,12 +459,16 @@ class FacebookScraper:
 
                     # Skip posts links that are already read
                     if self.driver.current_url in self._posts_links:
-                        print("Skipping the already read post")
+                        log_warn(
+                            f"Skipping already read post: {Col.CYAN}{self.driver.current_url}{Col.END}"
+                        )
                         self.click_elem(close_btn)
                         current_index += 1
                         continue
 
-                    print("Opened one post!")
+                    log_info(
+                        f"Processing post {Col.BOLD}#{self._post_id + 1}{Col.END}..."
+                    )
                     commment_prev_size = len(comments)
 
                     self.extract_comment_articles(dialog_elem, comments)
@@ -445,14 +476,14 @@ class FacebookScraper:
                     added_comments = len(comments) - commment_prev_size
 
                     if added_comments > 0:
-                        print(
-                            f"Extracted a total of {len(comments) - commment_prev_size} comments from one post..."
+                        log_success(
+                            f"Extracted {Col.BOLD}{added_comments}{Col.END} comments from this post."
                         )
-                        self._post_id += 1
                     else:
-                        print("The opened post has no commments!")
+                        log_warn("The opened post has no comments!")
 
                     posts.add((self._post_id, self.driver.current_url))
+                    self._post_id += 1
 
                     # After maread yung commments close the post modal
                     self.click_elem(close_btn)
@@ -463,17 +494,34 @@ class FacebookScraper:
                 previous_len = current_len
 
         except Exception:
+            log_error("An error occurred during extraction:")
             traceback.print_exc()
 
 
 if __name__ == "__main__":
-    try:
-        _, username, password = sys.argv
-    except Exception:
-        print("Usage: python main.py <username> <password>")
+    _ = subprocess.run("cls" if os.name == "nt" else "clear", shell=True)
+
+    # ======================= INPUT ========================================
+    print(f"{Col.BLUE}{Col.BOLD}" + "=" * 50)
+    print(" " * 13 + "FACEBOOK COMMENT SCRAPER")
+    print("=" * 50 + f"{Col.END}\n")
+
+    username = input(f"{Col.CYAN}Enter Facebook Email/Phone: {Col.END}")
+    if not username:
+        log_error("Username cannot be empty.")
         sys.exit()
 
-    _ = subprocess.run("cls" if os.name == "nt" else "clear", shell=True)
+    password = getpass.getpass(
+        f"{Col.CYAN}Enter Facebook Password (hidden): {Col.END}", echo_char="*"
+    )
+
+    print(f"\n{Col.YELLOW}--- Configuration ---{Col.END}")
+    target_limit = input("Overall comment limit [Default 1000]: ") or "1000"
+    post_limit = input("Limit per post [Default 100]: ") or "100"
+    # ======================================================================
+
+    overall_limit = int(target_limit)
+    limit_per_post = int(post_limit)
 
     posts_csv = "facebook_posts.csv"
     comments_csv = "facebook_comments.csv"
@@ -487,7 +535,10 @@ if __name__ == "__main__":
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
     # naka none yung limit per post para magamit dapat iset yung number
     scraper = FacebookScraper(
-        username, password, overall_limit=1000, limit_per_post=100
+        username,
+        password,
+        overall_limit=overall_limit,
+        limit_per_post=limit_per_post,
     )
 
     try:
@@ -502,7 +553,8 @@ if __name__ == "__main__":
             scraper.navigate_to_link(url)
             scraper.extract_comments_with_bs(posts_csv, comments_csv)
 
-        print("Scrape results are written in facebook_comments.csv")
+        print(f"\n{Col.GREEN}{Col.BOLD}✔ SCRAPING COMPLETE!{Col.END}")
+        log_success(f"Results saved to {Col.BOLD}{comments_csv}{Col.END}")
 
     finally:
         scraper.close()
