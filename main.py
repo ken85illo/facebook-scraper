@@ -93,6 +93,10 @@ class FacebookScraper:
             if "Post Link" in df.columns:
                 self._posts_links = set(df["Post Link"])
 
+            if "Id" in df.columns:
+                last_index = int(df["Id"].values[-1]) + 1
+                self._post_id = last_index
+
     def scroll_into_view(self, element: WebElement):
         if self.driver:
             self.driver.execute_script(
@@ -467,7 +471,7 @@ class FacebookScraper:
                         continue
 
                     log_info(
-                        f"Processing post {Col.BOLD}#{self._post_id + 1}{Col.END}..."
+                        f"Processing post {Col.BOLD}#{self._post_id}{Col.END}..."
                     )
                     commment_prev_size = len(comments)
 
