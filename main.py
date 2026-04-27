@@ -3,6 +3,7 @@ import random
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime
 
 import pandas as pd
@@ -16,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
 
+# pyright: reportUnknownMemberType = false
 class FacebookScraper:
     def __init__(
         self,
@@ -57,27 +59,12 @@ class FacebookScraper:
             if random.random() < 0.1:
                 time.sleep(random.uniform(0.3, 0.7))
 
-    def read_comments_csv(self, filepath: str):
-        try:
-            df = pd.read_csv(filepath)
-            comments: set[tuple[int | datetime | str | None, ...]] = set(
-                df.itertuples(index=False, name=None)
-            )
-            return comments
-        except Exception:
-            return set[tuple[int | datetime | str | None, ...]]()
-
     def read_posts_csv(self, filepath: str):
-        try:
+        if os.path.isfile(filepath):
             df = pd.read_csv(filepath)
-            self._posts_links = set(df["Post Link"])
 
-            posts: set[tuple[int, str]] = set(
-                df.itertuples(index=False, name=None)
-            )
-            return posts
-        except Exception:
-            return set[tuple[int, str]]()
+            if "Post Link" in df.columns:
+                self._posts_links = set(df["Post Link"])
 
     def scroll_into_view(self, element: WebElement):
         if self.driver:
@@ -90,11 +77,6 @@ class FacebookScraper:
     def click_elem(self, element: WebElement):
         if not self.driver:
             return
-
-        # Wait for the element to be clickable
-        element = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable(element)
-        )
 
         # Move mouse to element before clicking to simulate human behavior
         (
@@ -121,13 +103,13 @@ class FacebookScraper:
         time.sleep(3)
 
         # Enter email
-        email_input = WebDriverWait(self.driver, 10).until(
+        email_input = WebDriverWait(self.driver, 300).until(
             EC.presence_of_element_located((By.NAME, "email"))
         )
         self.simulate_human_typing(email_input, self.email)
 
         # Enter password
-        password_input = WebDriverWait(self.driver, 10).until(
+        password_input = WebDriverWait(self.driver, 300).until(
             EC.presence_of_element_located((By.NAME, "pass"))
         )
         self.simulate_human_typing(password_input, self.password)
@@ -188,7 +170,7 @@ class FacebookScraper:
         self.scroll_into_view(date_link[-1])
         self.hover_elem(date_link[-1])
 
-        date_tooltip = WebDriverWait(self.driver, 10).until(
+        date_tooltip = WebDriverWait(self.driver, 300).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, "div[role='tooltip']")
             )
@@ -330,7 +312,43 @@ class FacebookScraper:
 
             previous_len = current_len
 
-    def extract_comments_with_bs(self):
+    def _write_csv(
+        self,
+        path: str,
+        data: set[tuple[int | datetime | str | None, ...]]
+        | set[tuple[int, str]],
+        sort_col: str,
+        columns: list[str],
+        datetime: bool = False,
+    ):
+        df_new = pd.DataFrame(list(data), columns=columns).sort_values(
+            by=sort_col
+        )
+
+        if os.path.isfile(path):
+            df_current = pd.read_csv(path)
+
+            df_new[sort_col] = (
+                pd.to_datetime(df_new[sort_col])
+                if datetime
+                else df_new[sort_col]
+            )
+            df_current[sort_col] = (
+                pd.to_datetime(df_current[sort_col])
+                if datetime
+                else df_current[sort_col]
+            )
+
+            df_write = pd.concat([df_new, df_current]).sort_values(by=sort_col)
+
+            df_write.to_csv(path, index=False)
+
+        else:
+            df_new.to_csv(path, index=False)
+
+        print(f"Appended new data to {path}...")
+
+    def extract_comments_with_bs(self, posts_path: str, comments_path: str):
         # Posts id and link
         posts: set[tuple[int, str]] = set()
 
@@ -338,7 +356,30 @@ class FacebookScraper:
         comments: set[tuple[int | datetime | str | None, ...]] = set()
 
         if not self.driver:
-            return posts, comments
+            return
+
+        def write_csv_files():
+            self._write_csv(posts_path, posts, "Id", ["Id", "Post Link"])
+            self._write_csv(
+                comments_path,
+                comments,
+                "Date",
+                [
+                    "Id",
+                    "Date",
+                    "Comments",
+                    "Like",
+                    "Love",
+                    "Care",
+                    "Laugh",
+                    "Shock",
+                    "Cry",
+                    "Angry",
+                ],
+                datetime=True,
+            )
+            posts.clear()
+            comments.clear()
 
         try:
             # Wait until the posts are loaded
@@ -347,7 +388,6 @@ class FacebookScraper:
                     (By.CSS_SELECTOR, "div[aria-label='Leave a comment']")
                 )
             )
-            time.sleep(3)
 
             # Checheck natin kung yung naload na comment button is mas marami kapag nagscroll tayo pababa
             previous_len = -1
@@ -366,7 +406,8 @@ class FacebookScraper:
 
                 for comment_btn in all_comment_btns[current_index:]:
                     if len(comments) >= self.overall_limit:
-                        return posts, comments
+                        write_csv_files()
+                        return
 
                     if not comment_btn.text.strip():
                         continue
@@ -376,7 +417,7 @@ class FacebookScraper:
                     self.click_elem(comment_btn)
 
                     # Wait until the post modal pops up
-                    dialog_elem = WebDriverWait(self.driver, 10).until(
+                    dialog_elem = WebDriverWait(self.driver, 300).until(
                         EC.presence_of_element_located(
                             (
                                 By.CSS_SELECTOR,
@@ -416,15 +457,13 @@ class FacebookScraper:
                     # After maread yung commments close the post modal
                     self.click_elem(close_btn)
 
+                    write_csv_files()
                     current_index += 1
 
                 previous_len = current_len
 
-            return posts, comments
-
-        except Exception as e:
-            print(f"Error: {e}")
-            return posts, comments
+        except Exception:
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
@@ -436,12 +475,13 @@ if __name__ == "__main__":
 
     _ = subprocess.run("cls" if os.name == "nt" else "clear", shell=True)
 
-    comments_csv = "facebook_comments.csv"
     posts_csv = "facebook_posts.csv"
+    comments_csv = "facebook_comments.csv"
 
     search_terms = ["rice price news"]  # dagdagan niyo nalang dito terms
     urls = [
-        f"https://www.facebook.com/search/top?q={term}" for term in search_terms
+        f"https://www.facebook.com/search/top?q={term}&filters=eyJycF9jcmVhdGlvbl90aW1lOjAiOiJ7XCJuYW1lXCI6XCJjcmVhdGlvbl90aW1lXCIsXCJhcmdzXCI6XCJ7XFxcInN0YXJ0X3llYXJcXFwiOlxcXCIyMDIwXFxcIixcXFwic3RhcnRfbW9udGhcXFwiOlxcXCIyMDIwLTFcXFwiLFxcXCJlbmRfeWVhclxcXCI6XFxcIjIwMjBcXFwiLFxcXCJlbmRfbW9udGhcXFwiOlxcXCIyMDIwLTEyXFxcIixcXFwic3RhcnRfZGF5XFxcIjpcXFwiMjAyMC0xLTFcXFwiLFxcXCJlbmRfZGF5XFxcIjpcXFwiMjAyMC0xMi0zMVxcXCJ9XCJ9In0%3D"
+        for term in search_terms
     ]
 
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
@@ -452,10 +492,7 @@ if __name__ == "__main__":
 
     try:
         # Read first if there is already a csv file
-        all_comments: set[tuple[int | datetime | str | None, ...]] = (
-            scraper.read_comments_csv(comments_csv)
-        )
-        all_posts: set[tuple[int, str]] = scraper.read_posts_csv(posts_csv)
+        scraper.read_posts_csv(posts_csv)
 
         scraper.initialize_driver()
         scraper.login()
@@ -463,35 +500,7 @@ if __name__ == "__main__":
         # Extract comments for posts for every search terms
         for url in urls:
             scraper.navigate_to_link(url)
-            posts, comments = scraper.extract_comments_with_bs()
-
-            if comments:
-                all_comments.update(comments)
-
-            if posts:
-                all_posts.update(posts)
-
-        df_posts = pd.DataFrame(
-            list(all_posts), columns=["Id", "Post Link"]
-        ).sort_values(by="Id")
-        df_posts.to_csv(posts_csv, index=False)
-
-        df_comments = pd.DataFrame(
-            list(all_comments),
-            columns=[
-                "Id",
-                "Date",
-                "Comments",
-                "Like",
-                "Love",
-                "Care",
-                "Laugh",
-                "Shock",
-                "Cry",
-                "Angry",
-            ],
-        ).sort_values(by="Date")
-        df_comments.to_csv(comments_csv, index=False)
+            scraper.extract_comments_with_bs(posts_csv, comments_csv)
 
         print("Scrape results are written in facebook_comments.csv")
 
