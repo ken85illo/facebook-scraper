@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime
 
 import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -17,8 +18,6 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
-import requests
-
 SUPABASE_URL = "https://eyzezxuxupjgtfsghtcu.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5emV6eHV4dXBqZ3Rmc2dodGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDQ1NDUsImV4cCI6MjA5MzAyMDU0NX0.xSRbwmINoeedWtDKjs8bkneRWXGzz-z1_4X3M3ijerw"
 
@@ -26,17 +25,14 @@ headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation,resolution=merge-duplicates"
+    "Prefer": "return=representation,resolution=merge-duplicates",
 }
+
 
 def post_exists(link: str) -> bool:
     url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
 
-    params = {
-        "select": "post_id",
-        "post_link": f"eq.{link}",
-        "limit": "1"
-    }
+    params = {"select": "post_id", "post_link": f"eq.{link}", "limit": "1"}
 
     response = requests.get(url, headers=headers, params=params)
 
@@ -48,13 +44,13 @@ def post_exists(link: str) -> bool:
 
     return len(data) > 0
 
+
 def insert_post(post) -> int:
     TABLE = "facebook_posts"
     url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
     response = requests.post(url, json=post, headers=headers)
 
     if response.status_code in (200, 201):
-
         data = response.json()
 
         return data[0]["post_id"]
@@ -67,11 +63,12 @@ def insert_comment(comment: list[dict]):
     TABLE = "facebook_comments"
     url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
     response = requests.post(url, json=comment, headers=headers)
-    
+
     if response.status_code in (200, 201):
         print("Inserted:", comment)
     else:
         print("Error:", response.text)
+
 
 # pyright: reportUnknownMemberType = false
 class Col:
@@ -137,9 +134,9 @@ class FacebookScraper:
     def simulate_human_typing(self, element: WebElement, text: str):
         for char in text:
             element.send_keys(char)
-            time.sleep(random.uniform(0.1, 0.3))
+            time.sleep(random.uniform(0.1, 0.5))
             if random.random() < 0.1:
-                time.sleep(random.uniform(0.3, 0.7))
+                time.sleep(random.uniform(0.6, 0.9))
 
     def read_posts_csv(self, filepath: str):
         if os.path.isfile(filepath):
@@ -353,6 +350,7 @@ class FacebookScraper:
         self,
         dialog_elem: WebElement,
         comments: set[tuple[int | datetime | str | None, ...]],
+        processed_comments: int,
     ):
         if not self.driver:
             return
@@ -390,7 +388,7 @@ class FacebookScraper:
                 current_index += 1
 
                 # If lumagpas na sa max return na
-                if len(comments) >= self.overall_limit or (
+                if processed_comments + len(comments) >= self.overall_limit or (
                     self.limit_per_post
                     and current_index + 1 > self.limit_per_post
                 ):
@@ -440,11 +438,13 @@ class FacebookScraper:
 
         # Post id, comment content and 7 reactions (9 total)
         comments: set[tuple[int | datetime | str | None, ...]] = set()
+        processed_comments = 0
 
         if not self.driver:
             return
 
         def write_csv_files():
+            nonlocal processed_comments
             self._write_csv(posts_path, posts, "Id", ["Id", "Post Link"])
             self._write_csv(
                 comments_path,
@@ -464,6 +464,8 @@ class FacebookScraper:
                 ],
                 datetime=True,
             )
+
+            processed_comments += len(comments)
             posts.clear()
             comments.clear()
 
@@ -491,7 +493,7 @@ class FacebookScraper:
                     break
 
                 for comment_btn in all_comment_btns[current_index:]:
-                    if len(comments) >= self.overall_limit:
+                    if processed_comments >= self.overall_limit:
                         write_csv_files()
                         return
 
@@ -531,17 +533,14 @@ class FacebookScraper:
                     )
                     commment_prev_size = len(comments)
 
-                    self.extract_comment_articles(dialog_elem, comments)
-
+                    self.extract_comment_articles(
+                        dialog_elem, comments, processed_comments
+                    )
                     added_comments = len(comments) - commment_prev_size
 
                     comments_json = [
-                        
-                    ]
-
-                    for comment in comments:
-                        comments_json.append({
-                            "date": comment[1].strftime("%d-%m-%Y"),
+                        {
+                            "date": comment[1].strftime("%Y-%m-%d %H:%M:%S"),
                             "comments": comment[2],
                             "like": comment[3],
                             "love": comment[4],
@@ -549,8 +548,10 @@ class FacebookScraper:
                             "laugh": comment[6],
                             "shock": comment[7],
                             "cry": comment[8],
-                            "angry": comment[9]
-                        })
+                            "angry": comment[9],
+                        }
+                        for comment in comments
+                    ]
 
                     if added_comments > 0:
                         insert_comment(comments_json)
@@ -560,10 +561,7 @@ class FacebookScraper:
                     else:
                         log_warn("The opened post has no comments!")
 
-                    post_json = {
-                        "post_link": f"{self.driver.current_url}"
-                    }
-
+                    post_json = {"post_link": f"{self.driver.current_url}"}
                     insert_post(post_json)
 
                     posts.add((self._post_id, self.driver.current_url))
@@ -612,8 +610,7 @@ if __name__ == "__main__":
 
     search_terms = ["rice price news"]  # dagdagan niyo nalang dito terms
     urls = [
-        f"https://www.facebook.com/search/top?q={term}&filters=eyJycF9jcmVhdGlvbl90aW1lOjAiOiJ7XCJuYW1lXCI6XCJjcmVhdGlvbl90aW1lXCIsXCJhcmdzXCI6XCJ7XFxcInN0YXJ0X3llYXJcXFwiOlxcXCIyMDIwXFxcIixcXFwic3RhcnRfbW9udGhcXFwiOlxcXCIyMDIwLTFcXFwiLFxcXCJlbmRfeWVhclxcXCI6XFxcIjIwMjBcXFwiLFxcXCJlbmRfbW9udGhcXFwiOlxcXCIyMDIwLTEyXFxcIixcXFwic3RhcnRfZGF5XFxcIjpcXFwiMjAyMC0xLTFcXFwiLFxcXCJlbmRfZGF5XFxcIjpcXFwiMjAyMC0xMi0zMVxcXCJ9XCJ9In0%3D"
-        for term in search_terms
+        f"https://www.facebook.com/search/top?q={term}" for term in search_terms
     ]
 
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
