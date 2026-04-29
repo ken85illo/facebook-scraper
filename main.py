@@ -541,7 +541,7 @@ class FacebookScraper:
 
                     for comment in comments:
                         comments_json.append({
-                            "date": comment[1],
+                            "date": comment[1].strftime("%d-%m-%Y"),
                             "comments": comment[2],
                             "like": comment[3],
                             "love": comment[4],
