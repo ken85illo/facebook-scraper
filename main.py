@@ -49,12 +49,11 @@ def post_exists(link: str) -> bool:
     return len(data) > 0
 
 def insert_post(post) -> int:
-    url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
-
+    TABLE = "facebook_posts"
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
     response = requests.post(url, json=post, headers=headers)
 
     if response.status_code in (200, 201):
-        print("Inserted:", post["post_link"])
 
         data = response.json()
 
@@ -62,12 +61,11 @@ def insert_post(post) -> int:
 
     else:
         print("Error:", response.text)
-    
-def insert_comment(comment, post_id):
-    comment["post_id"] = post_id;
 
-    url = f"{SUPABASE_URL}/rest/v1/facebook_comments"
 
+def insert_comment(comment: list[dict]):
+    TABLE = "facebook_comments"
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
     response = requests.post(url, json=comment, headers=headers)
     
     if response.status_code in (200, 201):
@@ -537,7 +535,25 @@ class FacebookScraper:
 
                     added_comments = len(comments) - commment_prev_size
 
+                    comments_json = [
+                        
+                    ]
+
+                    for comment in comments:
+                        comments_json.append({
+                            "date": comment[1],
+                            "comments": comment[2],
+                            "like": comment[3],
+                            "love": comment[4],
+                            "care": comment[5],
+                            "laugh": comment[6],
+                            "shock": comment[7],
+                            "cry": comment[8],
+                            "angry": comment[9]
+                        })
+
                     if added_comments > 0:
+                        insert_comment(comments_json)
                         log_success(
                             f"Extracted {Col.BOLD}{added_comments}{Col.END} comments from this post."
                         )
