@@ -441,18 +441,48 @@ class FacebookScraper:
             while True:
                 time.sleep(1)
                 # Query all the comment buttons
-                all_comment_btns = self.driver.find_elements(
-                    By.CSS_SELECTOR, "div[aria-label='Leave a comment']"
+
+                all_posts = self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "div:has(>div > div> div> div[data-ad-comet-preview][data-ad-preview])",
                 )
 
-                current_len = len(all_comment_btns)
+                current_len = len(all_posts)
                 if current_len <= previous_len:
                     break
 
-                for comment_btn in all_comment_btns[current_index:]:
+                for post in all_posts[current_index:]:
                     if processed_comments >= self.overall_limit:
                         clear_comments()
                         return
+
+                    # Extract post message
+                    post_message = post.find_element(
+                        By.CSS_SELECTOR,
+                        "div[data-ad-comet-preview][data-ad-preview]",
+                    )
+
+                    try:
+                        see_more_btn = post_message.find_element(
+                            By.CSS_SELECTOR, "div[role='button']"
+                        )
+                        self.scroll_into_view(see_more_btn)
+                        self.click_elem(see_more_btn)
+
+                    except Exception:
+                        pass
+
+                    # Get the text content of post message
+                    post_message_tag = post_message.get_attribute("outerHTML")
+                    post_message_text = ""
+                    if post_message_tag:
+                        post_message_text = BeautifulSoup(
+                            post_message_tag, "html.parser"
+                        ).get_text(strip=True)
+
+                    comment_btn = post.find_element(
+                        By.CSS_SELECTOR, "div[aria-label='Leave a comment']"
+                    )
 
                     if not comment_btn.text.strip():
                         continue
@@ -489,7 +519,10 @@ class FacebookScraper:
                         f"Processing post {Col.BOLD}#{current_index}{Col.END}..."
                     )
 
-                    post_json = {"post_link": f"{self.driver.current_url}"}
+                    post_json = {
+                        "post_link": f"{self.driver.current_url}",
+                        "post_content": post_message_text,
+                    }
                     post_id = insert_post(post_json)
 
                     commment_prev_size = len(comments)
@@ -578,7 +611,6 @@ if __name__ == "__main__":
             scraper.extract_comments_with_bs()
 
         print(f"\n{Col.GREEN}{Col.BOLD}✔ SCRAPING COMPLETE!{Col.END}")
-        log_success(f"Results saved to {Col.BOLD}{comments_csv}{Col.END}")
 
     finally:
         scraper.close()
