@@ -527,16 +527,16 @@ class FacebookScraper:
 
                     commment_prev_size = len(comments)
 
-                    # Delete the comment in database if failed extracting comments
+                    # Delete the post in database if failed extracting comments
+                    added_comments = 0
                     try:
                         self.extract_comment_articles(
                             dialog_elem, comments, processed_comments
                         )
+                        added_comments = len(comments) - commment_prev_size
                     except Exception:
                         if post_id:
                             delete_post(post_id)
-
-                    added_comments = len(comments) - commment_prev_size
 
                     if added_comments > 0:
                         if post_id:
