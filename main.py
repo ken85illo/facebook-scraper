@@ -7,7 +7,6 @@ import time
 import traceback
 from datetime import datetime
 
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -17,6 +16,9 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
+
+# pyright: reportAny=false, reportUnknownMemberType = false
+
 
 SUPABASE_URL = "https://eyzezxuxupjgtfsghtcu.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5emV6eHV4dXBqZ3Rmc2dodGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDQ1NDUsImV4cCI6MjA5MzAyMDU0NX0.xSRbwmINoeedWtDKjs8bkneRWXGzz-z1_4X3M3ijerw"
@@ -29,48 +31,6 @@ headers = {
 }
 
 
-def post_exists(link: str) -> bool:
-    url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
-
-    params = {"select": "post_id", "post_link": f"eq.{link}", "limit": "1"}
-
-    response = requests.get(url, headers=headers, params=params)
-
-    if response.status_code != 200:
-        print("Error:", response.text)
-        return False
-
-    data = response.json()
-
-    return len(data) > 0
-
-
-def insert_post(post) -> int:
-    TABLE = "facebook_posts"
-    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
-    response = requests.post(url, json=post, headers=headers)
-
-    if response.status_code in (200, 201):
-        data = response.json()
-
-        return data[0]["post_id"]
-
-    else:
-        print("Error:", response.text)
-
-
-def insert_comment(comment: list[dict]):
-    TABLE = "facebook_comments"
-    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
-    response = requests.post(url, json=comment, headers=headers)
-
-    if response.status_code in (200, 201):
-        print("Inserted:", comment)
-    else:
-        print("Error:", response.text)
-
-
-# pyright: reportUnknownMemberType = false
 class Col:
     BLUE: str = "\033[94m"
     CYAN: str = "\033[96m"
@@ -97,6 +57,55 @@ def log_error(msg: str):
     print(f"{Col.RED}[ERROR]{Col.END} {msg}")
 
 
+def post_exists(link: str) -> bool:
+    url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
+
+    params = {"select": "post_id", "post_link": f"eq.{link}", "limit": "1"}
+
+    response = requests.get(url, headers=headers, params=params)
+
+    if response.status_code != 200:
+        log_error(f"Error: {response.text}")
+        return False
+
+    data = response.json()
+
+    return len(data) > 0
+
+
+def insert_post(post: dict[str, str]) -> int | None:
+    TABLE = "facebook_posts"
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
+    response = requests.post(url, json=post, headers=headers)
+
+    if response.status_code in (200, 201):
+        data = response.json()
+
+        return data[0]["post_id"]
+
+    else:
+        log_error(f"Error: {response.text}")
+
+
+def delete_post(post_id: int):
+    TABLE = "facebook_posts"
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE}?post_id=eq.{post_id}"
+
+    _ = requests.delete(url, headers=headers)
+
+
+def insert_comment(comment: list[dict[str, str | int | datetime | None]]):
+    TABLE = "facebook_comments"
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
+    response = requests.post(url, json=comment, headers=headers)
+
+    if response.status_code in (200, 201):
+        log_success(f"Inserted: {Col.CYAN}{comment}{Col.END}")
+
+    else:
+        log_error(f"Error: {response.text}")
+
+
 class FacebookScraper:
     def __init__(
         self,
@@ -111,7 +120,6 @@ class FacebookScraper:
         self.limit_per_post: int | None = limit_per_post
         self.overall_limit: int = overall_limit
         self._posts_links: set[str] = set()
-        self._post_id: int = 0
 
     def initialize_driver(self):
         options = Options()
@@ -119,6 +127,7 @@ class FacebookScraper:
         options.set_preference("useAutomationExtension", False)
 
         self.driver = webdriver.Firefox(options=options)
+
         log_info(f"Opening {Col.BOLD}Firefox{Col.END} browser...")
         time.sleep(3)
 
@@ -134,20 +143,9 @@ class FacebookScraper:
     def simulate_human_typing(self, element: WebElement, text: str):
         for char in text:
             element.send_keys(char)
-            time.sleep(random.uniform(0.1, 0.5))
+            time.sleep(random.uniform(0.1, 0.3))
             if random.random() < 0.1:
-                time.sleep(random.uniform(0.6, 0.9))
-
-    def read_posts_csv(self, filepath: str):
-        if os.path.isfile(filepath):
-            df = pd.read_csv(filepath)
-
-            if "Post Link" in df.columns:
-                self._posts_links = set(df["Post Link"])
-
-            if "Id" in df.columns:
-                last_index = int(df["Id"].values[-1]) + 1
-                self._post_id = last_index
+                time.sleep(random.uniform(0.5, 0.8))
 
     def scroll_into_view(self, element: WebElement):
         if self.driver:
@@ -381,9 +379,7 @@ class FacebookScraper:
                 reactions = self._extract_single_comment_reactions(article)
 
                 if inner_comment and reactions:
-                    comments.add(
-                        (self._post_id, date, inner_comment, *reactions)
-                    )
+                    comments.add((date, inner_comment, *reactions))
 
                 current_index += 1
 
@@ -396,46 +392,7 @@ class FacebookScraper:
 
             previous_len = current_len
 
-    def _write_csv(
-        self,
-        path: str,
-        data: set[tuple[int | datetime | str | None, ...]]
-        | set[tuple[int, str]],
-        sort_col: str,
-        columns: list[str],
-        datetime: bool = False,
-    ):
-        df_new = pd.DataFrame(list(data), columns=columns).sort_values(
-            by=sort_col
-        )
-
-        if os.path.isfile(path):
-            df_current = pd.read_csv(path)
-
-            df_new[sort_col] = (
-                pd.to_datetime(df_new[sort_col])
-                if datetime
-                else df_new[sort_col]
-            )
-            df_current[sort_col] = (
-                pd.to_datetime(df_current[sort_col])
-                if datetime
-                else df_current[sort_col]
-            )
-
-            df_write = pd.concat([df_new, df_current]).sort_values(by=sort_col)
-
-            df_write.to_csv(path, index=False)
-
-        else:
-            df_new.to_csv(path, index=False)
-
-        log_success(f"Appended new data to {Col.CYAN}{path}{Col.END}...")
-
-    def extract_comments_with_bs(self, posts_path: str, comments_path: str):
-        # Posts id and link
-        posts: set[tuple[int, str]] = set()
-
+    def extract_comments_with_bs(self):
         # Post id, comment content and 7 reactions (9 total)
         comments: set[tuple[int | datetime | str | None, ...]] = set()
         processed_comments = 0
@@ -443,31 +400,31 @@ class FacebookScraper:
         if not self.driver:
             return
 
-        def write_csv_files():
+        def clear_comments():
             nonlocal processed_comments
-            self._write_csv(posts_path, posts, "Id", ["Id", "Post Link"])
-            self._write_csv(
-                comments_path,
-                comments,
-                "Date",
-                [
-                    "Id",
-                    "Date",
-                    "Comments",
-                    "Like",
-                    "Love",
-                    "Care",
-                    "Laugh",
-                    "Shock",
-                    "Cry",
-                    "Angry",
-                ],
-                datetime=True,
-            )
-
             processed_comments += len(comments)
-            posts.clear()
             comments.clear()
+
+        def comments_to_json(
+            post_id: int,
+        ) -> list[dict[str, str | int | datetime | None]]:
+            return [
+                {
+                    "date": comment[0].strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(comment[0], datetime)
+                    else "",
+                    "comments": comment[1],
+                    "like": comment[2],
+                    "love": comment[3],
+                    "care": comment[4],
+                    "laugh": comment[5],
+                    "shock": comment[6],
+                    "cry": comment[7],
+                    "angry": comment[8],
+                    "post_id": post_id,
+                }
+                for comment in comments
+            ]
 
         try:
             # Wait until the posts are loaded
@@ -494,7 +451,7 @@ class FacebookScraper:
 
                 for comment_btn in all_comment_btns[current_index:]:
                     if processed_comments >= self.overall_limit:
-                        write_csv_files()
+                        clear_comments()
                         return
 
                     if not comment_btn.text.strip():
@@ -529,48 +486,39 @@ class FacebookScraper:
                         continue
 
                     log_info(
-                        f"Processing post {Col.BOLD}#{self._post_id}{Col.END}..."
+                        f"Processing post {Col.BOLD}#{current_index}{Col.END}..."
                     )
+
+                    post_json = {"post_link": f"{self.driver.current_url}"}
+                    post_id = insert_post(post_json)
+
                     commment_prev_size = len(comments)
 
-                    self.extract_comment_articles(
-                        dialog_elem, comments, processed_comments
-                    )
+                    # Delete the comment in database if failed extracting comments
+                    try:
+                        self.extract_comment_articles(
+                            dialog_elem, comments, processed_comments
+                        )
+                    except Exception:
+                        if post_id:
+                            delete_post(post_id)
+
                     added_comments = len(comments) - commment_prev_size
 
-                    comments_json = [
-                        {
-                            "date": comment[1].strftime("%Y-%m-%d %H:%M:%S"),
-                            "comments": comment[2],
-                            "like": comment[3],
-                            "love": comment[4],
-                            "care": comment[5],
-                            "laugh": comment[6],
-                            "shock": comment[7],
-                            "cry": comment[8],
-                            "angry": comment[9],
-                        }
-                        for comment in comments
-                    ]
-
                     if added_comments > 0:
-                        insert_comment(comments_json)
+                        if post_id:
+                            insert_comment(comments_to_json(post_id))
+
                         log_success(
                             f"Extracted {Col.BOLD}{added_comments}{Col.END} comments from this post."
                         )
                     else:
                         log_warn("The opened post has no comments!")
 
-                    post_json = {"post_link": f"{self.driver.current_url}"}
-                    insert_post(post_json)
-
-                    posts.add((self._post_id, self.driver.current_url))
-                    self._post_id += 1
-
                     # After maread yung commments close the post modal
                     self.click_elem(close_btn)
 
-                    write_csv_files()
+                    clear_comments()
                     current_index += 1
 
                 previous_len = current_len
@@ -605,12 +553,10 @@ if __name__ == "__main__":
     overall_limit = int(target_limit)
     limit_per_post = int(post_limit)
 
-    posts_csv = "facebook_posts.csv"
-    comments_csv = "facebook_comments.csv"
-
     search_terms = ["rice price news"]  # dagdagan niyo nalang dito terms
     urls = [
-        f"https://www.facebook.com/search/top?q={term}" for term in search_terms
+        f"https://www.facebook.com/search/top?q={term}&filters=eyJycF9jcmVhdGlvbl90aW1lOjAiOiJ7XCJuYW1lXCI6XCJjcmVhdGlvbl90aW1lXCIsXCJhcmdzXCI6XCJ7XFxcInN0YXJ0X3llYXJcXFwiOlxcXCIyMDIwXFxcIixcXFwic3RhcnRfbW9udGhcXFwiOlxcXCIyMDIwLTFcXFwiLFxcXCJlbmRfeWVhclxcXCI6XFxcIjIwMjBcXFwiLFxcXCJlbmRfbW9udGhcXFwiOlxcXCIyMDIwLTEyXFxcIixcXFwic3RhcnRfZGF5XFxcIjpcXFwiMjAyMC0xLTFcXFwiLFxcXCJlbmRfZGF5XFxcIjpcXFwiMjAyMC0xMi0zMVxcXCJ9XCJ9In0%3D"
+        for term in search_terms
     ]
 
     # additional arguments: overall limit and limit per post(bilang ng commments bago lumipat sa ibang post)
@@ -623,16 +569,13 @@ if __name__ == "__main__":
     )
 
     try:
-        # Read first if there is already a csv file
-        scraper.read_posts_csv(posts_csv)
-
         scraper.initialize_driver()
         scraper.login()
 
         # Extract comments for posts for every search terms
         for url in urls:
             scraper.navigate_to_link(url)
-            scraper.extract_comments_with_bs(posts_csv, comments_csv)
+            scraper.extract_comments_with_bs()
 
         print(f"\n{Col.GREEN}{Col.BOLD}✔ SCRAPING COMPLETE!{Col.END}")
         log_success(f"Results saved to {Col.BOLD}{comments_csv}{Col.END}")
