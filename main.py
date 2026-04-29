@@ -17,6 +17,63 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
+import requests
+
+SUPABASE_URL = "https://eyzezxuxupjgtfsghtcu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5emV6eHV4dXBqZ3Rmc2dodGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDQ1NDUsImV4cCI6MjA5MzAyMDU0NX0.xSRbwmINoeedWtDKjs8bkneRWXGzz-z1_4X3M3ijerw"
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation,resolution=merge-duplicates"
+}
+
+def post_exists(link: str) -> bool:
+    url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
+
+    params = {
+        "select": "post_id",
+        "post_link": f"eq.{link}",
+        "limit": "1"
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+
+    if response.status_code != 200:
+        print("Error:", response.text)
+        return False
+
+    data = response.json()
+
+    return len(data) > 0
+
+def insert_post(post) -> int:
+    url = f"{SUPABASE_URL}/rest/v1/facebook_posts"
+
+    response = requests.post(url, json=post, headers=headers)
+
+    if response.status_code in (200, 201):
+        print("Inserted:", post["post_link"])
+
+        data = response.json()
+
+        return data[0]["post_id"]
+
+    else:
+        print("Error:", response.text)
+    
+def insert_comment(comment, post_id):
+    comment["post_id"] = post_id;
+
+    url = f"{SUPABASE_URL}/rest/v1/facebook_comments"
+
+    response = requests.post(url, json=comment, headers=headers)
+    
+    if response.status_code in (200, 201):
+        print("Inserted:", comment)
+    else:
+        print("Error:", response.text)
 
 # pyright: reportUnknownMemberType = false
 class Col:
@@ -461,8 +518,9 @@ class FacebookScraper:
                         By.CSS_SELECTOR, "div[aria-label='Close']"
                     )
 
+                    # >>> Binago ko ang condition
                     # Skip posts links that are already read
-                    if self.driver.current_url in self._posts_links:
+                    if post_exists(self.driver.current_url):
                         log_warn(
                             f"Skipping already read post: {Col.CYAN}{self.driver.current_url}{Col.END}"
                         )
@@ -485,6 +543,12 @@ class FacebookScraper:
                         )
                     else:
                         log_warn("The opened post has no comments!")
+
+                    post_json = {
+                        "post_link": f"{self.driver.current_url}"
+                    }
+
+                    insert_post(post_json)
 
                     posts.add((self._post_id, self.driver.current_url))
                     self._post_id += 1
